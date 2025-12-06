@@ -11,20 +11,28 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [links, setLinks] = useState([]);
   
-  // 视频加载状态 (默认为 false，表示没加载完)
-  const [isVideoLoaded, setIsVideoLoaded] = useState(false);
-  
   // 搜索引擎状态
   const [engines, setEngines] = useState([]);
   const [currentEngine, setCurrentEngine] = useState({ name: '百度', url: 'https://www.baidu.com/s?wd=' });
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   
-  // 引用 Ref 用于检测点击外部
+  // 视频控制状态
+  // 1. startLoadVideo: 控制是否开始下载视频（解决带宽抢占问题）
+  const [startLoadVideo, setStartLoadVideo] = useState(false);
+  // 2. isVideoReady: 控制视频是否缓冲完毕可以播放（解决黑屏闪烁问题）
+  const [isVideoReady, setIsVideoReady] = useState(false);
+
   const searchContainerRef = useRef(null);
 
   // --- 初始化逻辑 ---
   useEffect(() => {
-    // 1. 读取导航链接
+    // 1. 延迟加载视频的核心逻辑
+    // 页面加载后，先等待 800ms，确保文字和静态图完全显示，再去请求视频
+    const videoTimer = setTimeout(() => {
+      setStartLoadVideo(true);
+    }, 800); 
+
+    // 2. 读取导航链接
     const envLinks = process.env.NEXT_PUBLIC_NAV_LINKS;
     if (envLinks) {
       try { setLinks(JSON.parse(envLinks)); } catch (e) { console.error("导航链接解析失败", e); }
@@ -32,7 +40,7 @@ export default function Home() {
       setLinks([{ name: '演示-淘宝', url: 'https://www.taobao.com' }]);
     }
 
-    // 2. 读取搜索引擎
+    // 3. 读取搜索引擎
     const envEngines = process.env.NEXT_PUBLIC_SEARCH_ENGINES;
     let loadedEngines = [
       { name: '百度', url: 'https://www.baidu.com/s?wd=' },
@@ -51,7 +59,7 @@ export default function Home() {
     setEngines(loadedEngines);
     setCurrentEngine(loadedEngines[0]);
 
-    // 3. 时间更新
+    // 4. 时间更新
     const updateTime = () => {
       const now = new Date();
       setTime(now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
@@ -62,7 +70,7 @@ export default function Home() {
     updateTime();
     const timer = setInterval(updateTime, 1000);
 
-    // 4. 点击外部关闭下拉菜单
+    // 5. 点击外部关闭下拉菜单
     const handleClickOutside = (event) => {
       if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
         setIsDropdownOpen(false);
@@ -72,6 +80,7 @@ export default function Home() {
 
     return () => {
       clearInterval(timer);
+      clearTimeout(videoTimer);
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
@@ -91,31 +100,33 @@ export default function Home() {
   return (
     <main className="relative w-full h-screen overflow-hidden text-white font-sans">
       
-      {/* 1. 静态占位图 (cat.jpg) - 永远显示在最底层 */}
+      {/* 1. 静态占位图 */}
       <img 
         src="/background/cat.jpg" 
-        alt="Background Placeholder"
+        alt="Background"
         className="absolute top-0 left-0 w-full h-full object-cover z-0"
       />
 
-      {/* 2. 背景视频 (cat.mp4) - 叠加在图片之上 */}
-      <video
-        autoPlay
-        loop
-        muted
-        playsInline
-        // 当视频可以播放时，将状态设为 true
-        onCanPlay={() => setIsVideoLoaded(true)}
-        className={`
-          absolute top-0 left-0 w-full h-full object-cover z-0
-          transition-opacity duration-1000 ease-in-out
-          ${isVideoLoaded ? 'opacity-100' : 'opacity-0'}
-        `}
-      >
-        <source src="/background/cat.mp4" type="video/mp4" />
-      </video>
+      {/* 2. 背景视频 (条件渲染) */}
+      {startLoadVideo && (
+        <video
+          autoPlay
+          loop
+          muted
+          playsInline
+          // 当视频下载足够播放时，触发此函数，让视频显形
+          onCanPlay={() => setIsVideoReady(true)}
+          className={`
+            absolute top-0 left-0 w-full h-full object-cover z-0
+            transition-opacity duration-1000 ease-in-out
+            ${isVideoReady ? 'opacity-100' : 'opacity-0'}
+          `}
+        >
+          <source src="/background/cat.mp4" type="video/mp4" />
+        </video>
+      )}
       
-      {/* 遮罩层 (加深一点背景，让文字更清晰) */}
+      {/* 遮罩层 */}
       <div className="absolute top-0 left-0 w-full h-full bg-black/10 z-10 pointer-events-none" />
 
       {/* 主体内容 */}
@@ -207,7 +218,7 @@ export default function Home() {
               className="
                 text-sm sm:text-base font-medium text-white/90 tracking-wider 
                 px-4 py-2 rounded-full transition-all duration-200
-                hover:bg-white/15 hover:text-white hover:backdrop-blur-sm
+                hover:bg-white/20 hover:text-white hover:backdrop-blur-sm
               "
             >
               {link.name}
